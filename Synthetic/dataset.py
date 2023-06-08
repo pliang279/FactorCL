@@ -164,5 +164,52 @@ def get_planar_flow_labels(label_dim_info, total_raw_features):
     label_prob = torch.softmax(torch.from_numpy(z), dim=1)
     total_labels = torch.argmax(label_prob, dim=1).unsqueeze(1)
 
-
     return total_labels.numpy()
+
+
+# Simple Augmentations
+def swap(x):
+  mid = x.shape[0] // 2
+  return torch.cat([x[mid:], x[:mid]])
+
+def noise(x):
+  noise = torch.randn(x.shape) * 0.01
+  return x + noise.cuda()
+
+def random_drop(x):
+  drop_num = x.shape[0] // 10
+  drop_idxs = np.random.choice(x.shape[0], drop_num, replace=False)
+  x_aug = torch.clone(x)
+  x_aug[drop_idxs] = 0.0
+  return x_aug
+
+def identity(x):
+  return x
+
+# return a pair of augmented data
+def augment(x_batch):
+  v1 = x_batch
+  v2 = torch.clone(v1)
+  transforms = [swap, noise, random_drop, identity]
+
+  for i in range(x_batch.shape[0]):
+    t_idxs = np.random.choice(4, 2, replace=False)
+    t1 = transforms[t_idxs[0]]
+    t2 = transforms[t_idxs[1]]
+    v1[i] = t1(v1[i])
+    v2[i] = t2(v2[i])
+  
+  return v1, v2
+
+# return 1 augmented instance instead of pair
+def augment_single(x_batch):
+  v1 = x_batch
+  v2 = torch.clone(v1)
+  transforms = [swap, noise, random_drop, identity]
+
+  for i in range(x_batch.shape[0]):
+    t_idxs = np.random.choice(4, 1, replace=False)
+    t2 = transforms[t_idxs[0]]
+    v2[i] = t2(v2[i])
+  
+  return v2
