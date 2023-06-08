@@ -69,28 +69,32 @@ def train_supcon(model, train_loader, optimizer, num_epoch=50, batch_size=128):
 
 
 ####RUS Model
+#One shared critic for conditional MI
 class RUSModel(nn.Module):
     def __init__(self, x1_dim, x2_dim, y_ohe_dim, hidden_dim, embed_dim, layers=2, activation='relu', lr=1e-4, ratio=1):
         super(RUSModel, self).__init__()
         self.critic_hidden_dim = 512
+        #self.critic_embed_dim = 128
         self.critic_layers = 1
         self.critic_activation = 'relu'
         self.lr = lr
         self.ratio = ratio
         self.y_ohe_dim = y_ohe_dim
 
+        #self.club_prob_hidden_size = 15
+        
         #encoder
-        self.backbones = nn.ModuleList([mlp(x1_dim, hidden_dim, embed_dim, 0, activation),
-                                        mlp(x2_dim, hidden_dim, embed_dim, 0, activation)])
+        self.backbones = nn.ModuleList([mlp(x1_dim, hidden_dim, embed_dim, layers, activation),
+                                        mlp(x2_dim, hidden_dim, embed_dim, layers, activation)])
         
         #projections
-        self.linears_infonce_x1x2 = nn.ModuleList([nn.Linear(embed_dim, embed_dim) for i in range(2)])
-        self.linears_club_x1x2_cond = nn.ModuleList([nn.Linear(embed_dim, embed_dim) for i in range(2)]) # conditional
+        self.linears_infonce_x1x2 = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)])
+        self.linears_club_x1x2_cond = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)]) # conditional
 
-        self.linears_infonce_x1y = nn.Linear(embed_dim, embed_dim)
-        self.linears_infonce_x2y = nn.Linear(embed_dim, embed_dim)
-        self.linears_infonce_x1x2_cond = nn.ModuleList([nn.Linear(embed_dim, embed_dim) for i in range(2)]) #conditional
-        self.linears_club_x1x2 = nn.ModuleList([nn.Linear(embed_dim, embed_dim) for i in range(2)])
+        self.linears_infonce_x1y = mlp(embed_dim, embed_dim, embed_dim, 1, activation)
+        self.linears_infonce_x2y = mlp(embed_dim, embed_dim, embed_dim, 1, activation) 
+        self.linears_infonce_x1x2_cond = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)]) #conditional
+        self.linears_club_x1x2 = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)])
 
         #critics
         self.infonce_x1x2 = InfoNCECritic(embed_dim, embed_dim, self.critic_hidden_dim, self.critic_layers, activation)
@@ -153,70 +157,19 @@ class RUSModel(nn.Module):
         ]
         return sum(learning_losses)
  
-    def get_factored_embeddings(self, x):
+    def get_embedding(self, x):
         x1, x2 = x[0], x[1]
-
         x1_embed = self.backbones[0](x1)
         x2_embed = self.backbones[1](x2)
-         
-        x1_r_reps = [self.linears_infonce_x1x2[0](x1_embed), 
-                     self.linears_club_x1x2_cond[0](x1_embed)]
-     
 
-        x1_u_reps = [self.linears_club_x1x2[0](x1_embed), 
-                     self.linears_infonce_x1y(x1_embed),
-                     self.linears_infonce_x1x2_cond[0](x1_embed)]
-
-        x2_r_reps = [self.linears_infonce_x1x2[1](x2_embed),
-                     self.linears_club_x1x2_cond[1](x2_embed)]
-
-        x2_u_reps = [self.linears_club_x1x2[1](x2_embed),
-                     self.linears_infonce_x2y(x2_embed),
-                     self.linears_infonce_x1x2_cond[1](x2_embed)]           
-        
-        return torch.cat(x1_r_reps, dim=1), torch.cat(x1_u_reps, dim=1), torch.cat(x2_r_reps, dim=1), torch.cat(x2_u_reps, dim=1)
-
-    def get_op_embeddings(self, x):
-        x1, x2 = x[0], x[1]
-
-        x1_embed = self.backbones[0](x1)
-        x2_embed = self.backbones[1](x2)
-         
-        x1_r = self.linears_infonce_x1x2[0](x1_embed) \
-               - self.linears_club_x1x2_cond[0](x1_embed)
-     
-        x1_u = - self.linears_club_x1x2[0](x1_embed) \
-               + self.linears_infonce_x1y(x1_embed) \
-               + self.linears_infonce_x1x2_cond[0](x1_embed)
-
-        x2_r = self.linears_infonce_x1x2[1](x2_embed) \
-               - self.linears_club_x1x2_cond[1](x2_embed) 
-
-        x2_u = - self.linears_club_x1x2[1](x2_embed) \
-               + self.linears_infonce_x2y(x2_embed) \
-               + self.linears_infonce_x1x2_cond[1](x2_embed)
-
-        return x1_r, x1_u, x2_r, x2_u
+        return torch.concat([x1_embed, x2_embed], dim=1)
 
     def get_separate_embeddings(self, x):
         x1, x2 = x[0], x[1]
-
         x1_embed = self.backbones[0](x1)
         x2_embed = self.backbones[1](x2)
-         
-        x1_reps = [self.linears_infonce_x1x2[0](x1_embed), 
-                   self.linears_club_x1x2[0](x1_embed), 
-                   self.linears_infonce_x1y(x1_embed),
-                   self.linears_infonce_x1x2_cond[0](x1_embed),
-                   self.linears_club_x1x2_cond[0](x1_embed)]
 
-        x2_reps = [self.linears_infonce_x1x2[1](x2_embed),
-                   self.linears_club_x1x2[1](x2_embed),
-                   self.linears_infonce_x2y(x2_embed),
-                   self.linears_infonce_x1x2_cond[1](x2_embed),
-                   self.linears_club_x1x2_cond[1](x2_embed)]
-        
-        return torch.cat(x1_reps, dim=1), torch.cat(x2_reps, dim=1)
+        return x1_embed, x2_embed
 
     def get_optims(self):
         non_CLUB_params = [self.backbones.parameters(),
@@ -242,6 +195,7 @@ class RUSModel(nn.Module):
 
 
 ####RUS Augmentation
+
 class RUSModelAugment(nn.Module):
     def __init__(self, x1_dim, x2_dim, hidden_dim, embed_dim, layers=2, activation='relu', lr=1e-4, ratio=1):
         super(RUSModelAugment, self).__init__()
@@ -331,48 +285,19 @@ class RUSModelAugment(nn.Module):
         ]
         return sum(learning_losses)
  
-    def get_factored_embeddings(self, x):
+    def get_embedding(self, x):
         x1, x2 = x[0], x[1]
-
         x1_embed = self.backbones[0](x1)
         x2_embed = self.backbones[1](x2)
-         
-        x1_r_reps = [self.linears_infonce_x1x2[0](x1_embed), 
-                     self.linears_club_x1x2_cond[0](x1_embed)]
-     
 
-        x1_u_reps = [self.linears_club_x1x2[0](x1_embed), 
-                     self.linears_infonce_x1y(x1_embed),
-                     self.linears_infonce_x1x2_cond[0](x1_embed)]
-
-        x2_r_reps = [self.linears_infonce_x1x2[1](x2_embed),
-                     self.linears_club_x1x2_cond[1](x2_embed)]
-
-        x2_u_reps = [self.linears_club_x1x2[1](x2_embed),
-                     self.linears_infonce_x2y(x2_embed),
-                     self.linears_infonce_x1x2_cond[1](x2_embed)]           
-        
-        return torch.cat(x1_r_reps, dim=1), torch.cat(x1_u_reps, dim=1), torch.cat(x2_r_reps, dim=1), torch.cat(x2_u_reps, dim=1)
+        return torch.concat([x1_embed, x2_embed], dim=1)
 
     def get_separate_embeddings(self, x):
         x1, x2 = x[0], x[1]
-
         x1_embed = self.backbones[0](x1)
         x2_embed = self.backbones[1](x2)
-         
-        x1_reps = [self.linears_infonce_x1x2[0](x1_embed), 
-                   self.linears_club_x1x2[0](x1_embed), 
-                   self.linears_infonce_x1y(x1_embed),
-                   self.linears_infonce_x1x2_cond[0](x1_embed),
-                   self.linears_club_x1x2_cond[0](x1_embed)]
 
-        x2_reps = [self.linears_infonce_x1x2[1](x2_embed),
-                   self.linears_club_x1x2[1](x2_embed),
-                   self.linears_infonce_x2y(x2_embed),
-                   self.linears_infonce_x1x2_cond[1](x2_embed),
-                   self.linears_club_x1x2_cond[1](x2_embed)]
-        
-        return torch.cat(x1_reps, dim=1), torch.cat(x2_reps, dim=1)
+        return x1_embed, x2_embed
 
     def get_optims(self):
         non_CLUB_params = [self.backbones.parameters(),
