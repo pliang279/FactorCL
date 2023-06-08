@@ -1,4 +1,5 @@
 from critic_objectives import*
+from Synthetic.dataset import augment, augment_single
 
 #Supcon and SimCLR model
 class SupConModel(nn.Module):
