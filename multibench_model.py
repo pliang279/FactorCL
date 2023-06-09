@@ -242,6 +242,11 @@ def train_supcon_mosi(model, train_loader, optimizer, modalities=[0,2], num_epoc
                 print('iter: ', _iter, ' i_batch: ', i_batch, ' loss: ', loss.item())
     return
 
+def sarcasm_label(y_batch):
+  res = copy.deepcopy(y_batch)
+  res[y_batch == -1] = 0
+
+  return res
 
 def train_supcon_sarcasm(model, train_loader, optimizer, modalities=[0,2], num_epoch=100):
     for _iter in range(num_epoch):
