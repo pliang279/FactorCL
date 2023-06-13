@@ -84,6 +84,49 @@ class SupConResNet(nn.Module):
     def get_embedding(self, x1, x2):
         return self.encoders[0](x1), self.encoders[1](x2)   
 
+    
+class SupConModel(nn.Module):
+    """backbone + projection head"""
+    def __init__(self, temperature, encoders, dim_ins, feat_dims, use_label=False, head='mlp'):
+        super(SupConModel, self).__init__()
+        
+        self.use_label = use_label
+        self.encoders = nn.ModuleList(encoders)
+        if head == 'linear':
+            self.head1 = nn.Linear(dim_ins[0], feat_dims[0])
+            self.head2 = nn.Linear(dim_ins[1], feat_dims[1])
+        elif head == 'mlp':
+            self.head1 = nn.Sequential(
+                nn.Linear(dim_ins[0], dim_ins[0]),
+                nn.ReLU(inplace=True),
+                nn.Linear(dim_ins[0], feat_dims[0])
+            )
+            self.head2 = nn.Sequential(
+                nn.Linear(dim_ins[1], dim_ins[1]),
+                nn.ReLU(inplace=True),
+                nn.Linear(dim_ins[1], feat_dims[1])
+            )
+
+        else:
+            raise NotImplementedError(
+                'head not supported: {}'.format(head))
+        self.critic = SupConLoss(temperature=temperature)
+
+    def forward(self, x1, x2, y):
+        feat1 = self.encoders[0](x1)
+        feat1 = self.head1(feat1)
+
+        feat2 = self.encoders[1](x2)
+        feat2 = self.head2(feat2)
+
+        feat = torch.cat([feat1.unsqueeze(1), feat2.unsqueeze(1)], dim=1)
+        loss = self.critic(feat, y) if self.use_label else self.critic(feat)
+
+        return loss
+
+    def get_embedding(self, x1, x2):
+        return self.encoders[0](x1), self.encoders[1](x2)  
+
 
 class CrossSelfModel(nn.Module):
     """backbone + projection head"""
