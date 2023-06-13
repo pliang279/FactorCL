@@ -1,9 +1,10 @@
 from critic_objectives import*
 
-class SupConResNetY(nn.Module):
+class SupConModel(nn.Module):
     """backbone + projection head"""
-    def __init__(self, model, processor, temperature, dim_ins, feat_dims, head='mlp'):
+    def __init__(self, model, processor, temperature, dim_ins, feat_dims, use_label=False, head='mlp'):
         super(SupConResNetY, self).__init__()
+        self.use_label = use_label
 
         self.model = model
         self.processor = processor
@@ -42,7 +43,7 @@ class SupConResNetY(nn.Module):
         feat2 = self.head2(feat2)
 
         feat = torch.cat([feat1.unsqueeze(1), feat2.unsqueeze(1)], dim=1)
-        loss = self.critic(feat, label)
+        loss = self.critic(feat, label) if self.use_label else self.critic(feat)
 
         return loss
 
@@ -55,61 +56,7 @@ class SupConResNetY(nn.Module):
         feat2 = outputs.text_embeds
         return feat1, feat2
     
-class SupConResNet(nn.Module):
-    """backbone + projection head"""
-    def __init__(self, model, processor, temperature, dim_ins, feat_dims, head='mlp'):
-        super(SupConResNet, self).__init__()
-        #model_fun, dim_in = model_dict[name]
 
-        self.model = model
-        self.processor = processor
-        self.device = 'cuda'
-
-        if head == 'linear':
-            self.head1 = nn.Linear(dim_ins[0], feat_dims[0])
-            self.head2 = nn.Linear(dim_ins[1], feat_dims[1])
-        elif head == 'mlp':
-            self.head1 = nn.Sequential(
-                nn.Linear(dim_ins[0], dim_ins[0]),
-                nn.ReLU(inplace=True),
-                nn.Linear(dim_ins[0], feat_dims[0])
-            )
-            self.head2 = nn.Sequential(
-                nn.Linear(dim_ins[1], dim_ins[1]),
-                nn.ReLU(inplace=True),
-                nn.Linear(dim_ins[1], feat_dims[1])
-            )
-
-        else:
-            raise NotImplementedError(
-                'head not supported: {}'.format(head))
-        self.critic = SupConLoss(temperature=temperature)
-
-    def forward(self, x):
-        inputs, label = process_fn(x)
-        inputs, label = inputs.to(self.device), label.to(self.device)
-        outputs = model(**inputs)
-
-        feat1 = outputs.image_embeds
-        feat2 = outputs.text_embeds
-
-        feat1 = self.head1(feat1)
-
-        feat2 = self.head2(feat2)
-
-        feat = torch.cat([feat1.unsqueeze(1), feat2.unsqueeze(1)], dim=1)
-        loss = self.critic(feat)
-
-        return loss
-
-    def get_embedding(self, x):
-        inputs, label = process_fn(x)
-        inputs, label = inputs.to(self.device), label.to(self.device)
-        outputs = model(**inputs)
-
-        feat1 = outputs.image_embeds
-        feat2 = outputs.text_embeds
-        return feat1, feat2 
     
 
 def train_supcon(model, train_loader, optimizer, num_epoch=100):
