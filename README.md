@@ -16,7 +16,7 @@ We perform experiments on data with controllable ratios of task-relevant shared 
 
 The synthetic dataset and generation process are implemented in ```Synthetic/dataset.py```. 
 
-Follow steps in the notebook ```Synthetic/synthetic_example.ipynb``` to generate synthetic data with customized shared information and run FactorCL/[SimCLR](https://arxiv.org/abs/2002.05709)/[SupCon](https://arxiv.org/abs/2004.11362) on the generated data. The implementations for SimCLR and SupCon are adapted from [here](https://github.com/HobbitLong/SupContrast)
+Follow steps in the notebook ```Synthetic/synthetic_example.ipynb``` to generate synthetic data with customized shared information and run FactorCL/[SimCLR](https://arxiv.org/abs/2002.05709)/[SupCon](https://arxiv.org/abs/2004.11362) on the generated data. The implementations for SimCLR and SupCon are adapted from [here](https://github.com/HobbitLong/SupContrast).
 
 ## Multibench Experiments
 We evaluate the performance of our proposed FactorCL objective on a suite of datasets from [Multibench](https://arxiv.org/abs/2107.07502) with different shared and unique information. 
