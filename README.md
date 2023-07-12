@@ -1,6 +1,6 @@
 # Factorized Contrastive Learning
 
-This repository contains the source code to our paper ()
+This repository contains the source code to our [paper](https://arxiv.org/abs/2306.05268)
 
 Factorized Contrastive Learning (FactorCL) is a new multimodal representation learning method to go beyond multi-view redundancy. It factorizes task-relevant information into shared and unique representations and captures task-relevant information via maximizing MI lower bounds and removing task-irrelevant information via minimizing MI upper bounds.
 
