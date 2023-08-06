@@ -3,7 +3,7 @@ from critic_objectives import*
 class SupConModel(nn.Module):
     """backbone + projection head"""
     def __init__(self, model, processor, temperature, dim_ins, feat_dims, use_label=False, head='mlp'):
-        super(SupConResNetY, self).__init__()
+        super(SupConModel, self).__init__()
         self.use_label = use_label
 
         self.model = model
