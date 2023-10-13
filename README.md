@@ -1,6 +1,20 @@
 # Factorized Contrastive Learning
 
-This repository contains the source code to our [paper](https://arxiv.org/abs/2306.05268)
+This repository contains the source code to our paper:
+
+[**Factorized Contrastive Learning: Going Beyond Multi-view Redundancy**](https://arxiv.org/abs/2306.05268)<br>
+Paul Pu Liang*, Zihao Deng*, Martin Ma*, James Zou, Louis-Philippe Morency, Ruslan Salakhutdinov<br>
+NeurIPS 2023
+
+If you find this repository useful, please cite our paper:
+```
+@inproceedings{liang2023factorized,
+  title={Factorized Contrastive Learning: Going Beyond Multi-view Redundancy},
+  author={Liang, Paul Pu and Deng, Zihao and Ma, Martin and Zou, James and Morency, Louis-Philippe and Salakhutdinov, Ruslan},
+  booktitle={Advances in Neural Information Processing Systems},
+  year={2023}
+}
+```
 
 Factorized Contrastive Learning (FactorCL) is a new multimodal representation learning method to go beyond multi-view redundancy. It factorizes task-relevant information into shared and unique representations and captures task-relevant information via maximizing MI lower bounds and removing task-irrelevant information via minimizing MI upper bounds.
 
