@@ -1,6 +1,6 @@
 # Factorized Contrastive Learning
 
-This repository contains the source code to our paper:
+This repository contains the source code for our paper:
 
 [**Factorized Contrastive Learning: Going Beyond Multi-view Redundancy**](https://arxiv.org/abs/2306.05268)<br>
 Paul Pu Liang*, Zihao Deng*, Martin Ma*, James Zou, Louis-Philippe Morency, Ruslan Salakhutdinov<br>
