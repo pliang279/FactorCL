@@ -1,8 +1,8 @@
-
 import torch
 import numpy as np
 import math
 from torch.utils.data import Dataset
+
 
 # Synthetic Dataset
 class MultimodalDataset(Dataset):
@@ -57,8 +57,7 @@ def generate_data(num_data, num_modalities, feature_dim_info, label_dim_info, tr
       transforms = []
       for i in range(num_modalities):
         transforms.append(np.random.uniform(0.0,1.0,(modality_dims[i], default_transform_dim)))
-
-
+        
   # generate data
   for data_idx in range(num_data):
 
@@ -77,10 +76,8 @@ def generate_data(num_data, num_modalities, feature_dim_info, label_dim_info, tr
 
     raw_data = [np.concatenate(modality_concept_means[i]) for i in range(num_modalities)]
     
-
     # Transform into high-dimensional space
     modality_data = [raw_data[i] @ transforms[i] for i in range(num_modalities)]
-
 
     # update total data
     for i in range(num_modalities):
@@ -106,7 +103,6 @@ def generate_data(num_data, num_modalities, feature_dim_info, label_dim_info, tr
     total_raw_features[k] = np.array(v)
 
   return total_data, total_labels, total_raw_features
-
 
 
 def get_labels(label_dim_info, total_raw_features):
@@ -147,17 +143,13 @@ def get_planar_flow_labels(label_dim_info, total_raw_features):
       label_components.append(total_raw_features[k][:,:d])
       total_label_dim += d
 
-    #w = np.ones((total_label_dim,total_label_dim))
-    #b = np.ones(total_label_dim,)
-    #u = np.ones((total_label_dim,total_label_dim))
     w = np.random.normal(2, 1, size=(total_label_dim,total_label_dim))
     b = np.random.normal(2, 1, size=(total_label_dim,))
     u = np.random.normal(2, 1, size=(total_label_dim,total_label_dim))
 
-    #head = np.ones((total_label_dim,5))
     head = np.random.normal(2, 1, size=(total_label_dim,20))
    
-    z = np.concatenate(label_components, axis=1) #+ [np.random.randint(0, 2, 1)]) 
+    z = np.concatenate(label_components, axis=1) 
     z = z + np.tanh(z @ w + b) @ u 
     z = z @ head
 
