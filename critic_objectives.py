@@ -1,103 +1,11 @@
 import torch
-import math
-import copy
-
-import numpy as np
-import torch.optim as optim
 import torch.nn as nn
-import torch.nn.functional as F
+import numpy as np
 
 
-#Objectives
-def probabilistic_classifier_obj(f):
-    criterion = nn.BCEWithLogitsLoss()
-    
-    batch_size = f.shape[0]
-    labels = [0.]*(batch_size*batch_size)
-    labels[::(batch_size+1)] = [1.]*batch_size
-    labels = torch.tensor(labels).type_as(f)
-    labels = labels.view(-1,1)
-
-    logits = f.contiguous().view(-1,1)
-
-    Loss = -1.*criterion(logits, labels)
-
-    return Loss
-    
-def probabilistic_classifier_eval(f):
-    batch_size = f.shape[0]
-    joint_feat = f.contiguous().view(-1)[::(batch_size+1)]
-    joint_logits = torch.clamp(torch.sigmoid(joint_feat), min=1e-6, max=1-1e-6)
-
-    MI = torch.mean(torch.log((batch_size-1)*joint_logits/(1.-joint_logits)))
-    # we have batch_size*(batch_size-1) product of marginal samples
-    # we have batch_size joint density samples 
-
-    return MI
-
-def infonce_lower_bound_obj(scores):
-    nll = scores.diag().mean() - scores.logsumexp(dim=1)
-    # Alternative implementation:
-    # nll = -tf.nn.sparse_softmax_cross_entropy_with_logits(logits=scores, labels=tf.range(batch_size))
-    mi = torch.tensor(scores.size(0)).float().log() + nll
-    mi = mi.mean()
-    return mi
-
-
-####CLUB
-class CLUB(nn.Module):  # CLUB: Mutual Information Contrastive Learning Upper Bound
-    '''
-        This class provides the CLUB estimation to I(X,Y)
-        Method:
-            forward() :      provides the estimation with input samples  
-            loglikeli() :   provides the log-likelihood of the approximation q(Y|X) with input samples
-        Arguments:
-            x_dim, y_dim :         the dimensions of samples from X, Y respectively
-            hidden_size :          the dimension of the hidden layer of the approximation network q(Y|X)
-            x_samples, y_samples : samples from X and Y, having shape [sample_size, x_dim/y_dim] 
-    '''
-    def __init__(self, x_dim, y_dim, hidden_size):
-        super(CLUB, self).__init__()
-        # p_mu outputs mean of q(Y|X)
-        #print("create CLUB with dim {}, {}, hiddensize {}".format(x_dim, y_dim, hidden_size))
-        self.p_mu = nn.Sequential(nn.Linear(x_dim, hidden_size//2),
-                                       nn.ReLU(),
-                                       nn.Linear(hidden_size//2, y_dim))
-        # p_logvar outputs log of variance of q(Y|X)
-        self.p_logvar = nn.Sequential(nn.Linear(x_dim, hidden_size//2),
-                                       nn.ReLU(),
-                                       nn.Linear(hidden_size//2, y_dim),
-                                       nn.Tanh())
-
-    def get_mu_logvar(self, x_samples):
-        mu = self.p_mu(x_samples)
-        logvar = self.p_logvar(x_samples)
-        return mu, logvar
-    
-    def forward(self, x_samples, y_samples): 
-        mu, logvar = self.get_mu_logvar(x_samples)
-        
-        # log of conditional probability of positive sample pairs
-        positive = - (mu - y_samples)**2 /2./logvar.exp()  
-        
-        prediction_1 = mu.unsqueeze(1)          # shape [nsample,1,dim]
-        y_samples_1 = y_samples.unsqueeze(0)    # shape [1,nsample,dim]
-
-        # log of conditional probability of negative sample pairs
-        negative = - ((y_samples_1 - prediction_1)**2).mean(dim=1)/2./logvar.exp() 
-
-        print(positive.sum(dim = -1), negative.sum(dim = -1))
-        return (positive.sum(dim = -1) - negative.sum(dim = -1)).mean()
-
-    def loglikeli(self, x_samples, y_samples): # unnormalized loglikelihood 
-        mu, logvar = self.get_mu_logvar(x_samples)
-        return (-(mu - y_samples)**2 /logvar.exp()-logvar).sum(dim=1).mean(dim=0)
-    
-    def learning_loss(self, x_samples, y_samples):
-        return - self.loglikeli(x_samples, y_samples)
-
-
-####Critic Model
+####################
+#   Critic Model   #
+####################
 
 def mlp(dim, hidden_dim, output_dim, layers, activation):
     activation = {
@@ -111,6 +19,7 @@ def mlp(dim, hidden_dim, output_dim, layers, activation):
     seq += [nn.Linear(hidden_dim, output_dim)]
 
     return nn.Sequential(*seq)
+
 
 class SeparableCritic(nn.Module):
     def __init__(self, x1_dim, x2_dim, hidden_dim, embed_dim, 
@@ -143,6 +52,7 @@ class SeparableCritic(nn.Module):
             raise NotImplementedError("not supporting our PMI!")
         return PMI
 
+
 class ConcatCritic(nn.Module):
     def __init__(self, A_dim, B_dim, hidden_dim, layers, activation, **extra_kwargs):
         super(ConcatCritic, self).__init__()
@@ -161,6 +71,9 @@ class ConcatCritic(nn.Module):
         scores = self._f(xy_pairs)
         return torch.reshape(scores, [batch_size, batch_size]).t()
 
+
+
+# Concat critic with the InfoNCE (NCE) objective
 class InfoNCECritic(nn.Module):
     def __init__(self, A_dim, B_dim, hidden_dim, layers, activation, **extra_kwargs):
           super(InfoNCECritic, self).__init__()
@@ -174,30 +87,32 @@ class InfoNCECritic(nn.Module):
         y_tile = y_samples.unsqueeze(1).repeat((1, sample_size, 1))
 
         T0 = self._f(torch.cat([x_samples,y_samples], dim = -1))
-        T1 = self._f(torch.cat([x_tile, y_tile], dim = -1))  #[sample_size, sample_size, 1]
+        T1 = self._f(torch.cat([x_tile, y_tile], dim = -1))  
 
         lower_bound = T0.mean() - (T1.logsumexp(dim = 1).mean() - np.log(sample_size)) 
         return -lower_bound
 
+
+# Concat critic with the CLUBInfoNCE (NCE-CLUB) objective
 class CLUBInfoNCECritic(nn.Module):
     def __init__(self, A_dim, B_dim, hidden_dim, layers, activation, **extra_kwargs):
           super(CLUBInfoNCECritic, self).__init__()
-          # output is scalar score
+ 
           self._f = mlp(A_dim + B_dim, hidden_dim, 1, layers, activation)
-          #self._f.add_module('softplus', nn.Softplus())
 
+    # CLUB loss
     def forward(self, x_samples, y_samples):
         sample_size = y_samples.shape[0]
 
         x_tile = x_samples.unsqueeze(0).repeat((sample_size, 1, 1))
         y_tile = y_samples.unsqueeze(1).repeat((1, sample_size, 1))
 
-        #Normalize T1: /N or /sqrt(N)
-        T0 = self._f(torch.cat([y_samples,x_samples], dim = -1)) # add sigmoid / softmax
-        T1 = self._f(torch.cat([y_tile, x_tile], dim = -1))  #[sample_size, sample_size, 1] # add sigmoid / softmax
+        T0 = self._f(torch.cat([y_samples,x_samples], dim = -1)) 
+        T1 = self._f(torch.cat([y_tile, x_tile], dim = -1))  
 
-        return T0.mean() - T1.mean()#, T0.mean(), T1.mean()
+        return T0.mean() - T1.mean()
 
+    # InfoNCE loss
     def learning_loss(self, x_samples, y_samples):
         sample_size = y_samples.shape[0]
 
@@ -205,66 +120,12 @@ class CLUBInfoNCECritic(nn.Module):
         y_tile = y_samples.unsqueeze(1).repeat((1, sample_size, 1))
 
         T0 = self._f(torch.cat([y_samples,x_samples], dim = -1))
-        T1 = self._f(torch.cat([y_tile, x_tile], dim = -1)) #[sample_size, sample_size, 1]
+        T1 = self._f(torch.cat([y_tile, x_tile], dim = -1)) 
 
         lower_bound = T0.mean() - (T1.logsumexp(dim = 1).mean() - np.log(sample_size)) 
         return -lower_bound
 
 
-class CLUBPCCritic(nn.Module):
-    def __init__(self, x_dim, y_dim, hidden_size):
-        super(CLUBPCCritic, self).__init__()
-        self.F_func = nn.Sequential(nn.Linear(x_dim + y_dim, hidden_size),
-                                    nn.ReLU(),
-                                    nn.Linear(hidden_size, hidden_size),
-                                    nn.ReLU(),
-                                    nn.Linear(hidden_size, 1))
-    
-    def forward(self, x_samples, y_samples):  # samples have shape [sample_size, dim]
-        # shuffle and concatenate
-        sample_size = y_samples.shape[0]
-
-        x_tile = x_samples.unsqueeze(0).repeat((sample_size, 1, 1))
-        y_tile = y_samples.unsqueeze(1).repeat((1, sample_size, 1))
-
-        #T0 = self.F_func(torch.cat([y_samples,x_samples], dim = -1))
-        f = self.F_func(torch.cat([y_tile, x_tile], dim = -1))  #[sample_size, sample_size, 1]
-        
-        ############
-        batch_size = f.shape[0]
-
-        joint_feat = f.contiguous().view(-1)[::(batch_size+1)]
-        joint_logits = torch.sigmoid(joint_feat)
-        joint = torch.mean(torch.log((batch_size-1)*joint_logits/(1.-joint_logits)))
-
-        marginal_feat = f.contiguous().view(-1)
-        marginal_logits = torch.sigmoid(marginal_feat)
-        marginal = torch.mean(torch.log((batch_size-1)*marginal_logits/(1.-marginal_logits)))
-        
-        return joint - marginal
-
-    def learning_loss(self, x_samples, y_samples):
-        sample_size = y_samples.shape[0]
-
-        x_tile = x_samples.unsqueeze(0).repeat((sample_size, 1, 1))
-        y_tile = y_samples.unsqueeze(1).repeat((1, sample_size, 1))
-
-        f = self.F_func(torch.cat([y_tile, x_tile], dim = -1)) #[sample_size, sample_size, 1]
-
-        ############
-        criterion = nn.BCEWithLogitsLoss()
-    
-        batch_size = f.shape[0]
-        labels = [0.]*(batch_size*batch_size)
-        labels[::(batch_size+1)] = [1.]*batch_size
-        labels = torch.tensor(labels).type_as(f)
-        labels = labels.view(-1,1)
-
-        logits = f.contiguous().view(-1,1)
-
-        Loss = -1.*criterion(logits, labels)
-
-        return -Loss
 
 
 class SupConLoss(nn.Module):
