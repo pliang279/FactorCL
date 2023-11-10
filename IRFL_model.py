@@ -1,14 +1,30 @@
 from critic_objectives import*
+from torchvision import transforms
+
+import torch.optim as optim
+
+
+##############
+#   Models   #
+##############
+
+def mlp_head(dim_in, feat_dim):
+    return nn.Sequential(
+                nn.Linear(dim_in, dim_in),
+                nn.ReLU(inplace=True),
+                nn.Linear(dim_in, feat_dim)
+            )
+
 
 class SupConModel(nn.Module):
     """backbone + projection head"""
-    def __init__(self, model, processor, temperature, dim_ins, feat_dims, use_label=False, head='mlp'):
+    def __init__(self, model, processor, temperature, dim_ins, feat_dims, device='cuda', use_label=False, head='mlp'):
         super(SupConModel, self).__init__()
         self.use_label = use_label
 
         self.model = model
         self.processor = processor
-        self.device = 'cuda'
+        self.device = device
 
         if head == 'linear':
             self.head1 = nn.Linear(dim_ins[0], feat_dims[0])
@@ -30,10 +46,17 @@ class SupConModel(nn.Module):
                 'head not supported: {}'.format(head))
         self.critic = SupConLoss(temperature=temperature)
 
+
+    def process_fn(self, batch):
+        images, texts, labels = batch
+        batch = self.processor(images=images, text=texts, padding=True, return_tensors='pt')
+
+        return batch, labels
+
     def forward(self, x):
-        inputs, label = process_fn(x)
+        inputs, label = self.process_fn(x)
         inputs, label = inputs.to(self.device), label.to(self.device)
-        outputs = model(**inputs)
+        outputs = self.model(**inputs)
 
         feat1 = outputs.image_embeds
         feat2 = outputs.text_embeds
@@ -48,188 +71,21 @@ class SupConModel(nn.Module):
         return loss
 
     def get_embedding(self, x):
-        inputs, label = process_fn(x)
+        inputs, label = self.process_fn(x)
         inputs, label = inputs.to(self.device), label.to(self.device)
-        outputs = model(**inputs)
+        outputs = self.model(**inputs)
 
         feat1 = outputs.image_embeds
         feat2 = outputs.text_embeds
         return feat1, feat2
     
 
-    
-
-def train_supcon(model, train_loader, optimizer, num_epoch=100):
-    for _iter in range(num_epoch):
-        for i_batch, data_batch in enumerate(train_loader):
-               
-            loss = model(data_batch)
-                
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            if i_batch%100 == 0:
-                print('iter: ', _iter, ' i_batch: ', i_batch, ' loss: ', loss.item())
-    return
 
 
-
-####CrossSelf
-
-def image_two_augment(image_batch):
-    aug_batch_1 = augment_image(image_batch)
-    aug_batch_2 = augment_image(image_batch)
-    
-    return aug_batch_1, aug_batch_2
-
-def text_two_augment(text_batch):
-    aug_batch_1 = augment_text(text_batch)
-    aug_batch_2 = augment_text(text_batch)
-    
-    return aug_batch_1, aug_batch_2
-
-class CrossSelfModel(nn.Module):
-    """backbone + projection head"""
-    def __init__(self, model, processor, temperature, dim_ins, feat_dims, head='mlp'):
-        super(CrossSelfModel, self).__init__()
-        #model_fun, dim_in = model_dict[name]
-
-        self.model = model
-        self.processor = processor
-        self.device = 'cuda'
-
-        if head == 'linear':
-            self.head1 = nn.Linear(dim_ins[0], feat_dims[0])
-            self.head2 = nn.Linear(dim_ins[1], feat_dims[1])
-        elif head == 'mlp':
-            self.head1 = nn.Sequential(
-                nn.Linear(dim_ins[0], dim_ins[0]),
-                nn.ReLU(inplace=True),
-                nn.Linear(dim_ins[0], feat_dims[0])
-            )
-            self.head2 = nn.Sequential(
-                nn.Linear(dim_ins[1], dim_ins[1]),
-                nn.ReLU(inplace=True),
-                nn.Linear(dim_ins[1], feat_dims[1])
-            )
-
-        else:
-            raise NotImplementedError(
-                'head not supported: {}'.format(head))
-        self.critic_u1 = SupConLoss(temperature=temperature)
-        self.critic_u2 = SupConLoss(temperature=temperature)
-        self.critic_r = SupConLoss(temperature=temperature)
-
-    def forward(self, x):
-        x1, x2, y = x
-      
-        x1_v1, x1_v2 = image_two_augment(x1)
-        x2_v1, x2_v2 = text_two_augment(x2)
-
-        x = (x1, x2, y)
-        inputs, label = process_fn(x)
-        inputs, label = inputs.to(self.device), label.to(self.device)
-        outputs = model(**inputs)
-        feat1 = outputs.image_embeds
-        feat2 = outputs.text_embeds
-
-        x1_embed = self.head1(feat1)
-        x2_embed = self.head2(feat2)
-
-        x_v1 = (x1_v1, x2_v1, y)
-        inputs, label = process_fn(x_v1)
-        inputs, label = inputs.to(self.device), label.to(self.device)
-        outputs = model(**inputs)
-        feat1 = outputs.image_embeds
-        feat2 = outputs.text_embeds
-
-        x1_v1_embed = self.head1(feat1)
-        x2_v1_embed = self.head2(feat2)
-
-        x_v2 = (x1_v2, x2_v2, y)
-        inputs, label = process_fn(x_v2)
-        inputs, label = inputs.to(self.device), label.to(self.device)
-        outputs = model(**inputs)
-        feat1 = outputs.image_embeds
-        feat2 = outputs.text_embeds
-
-        x1_v2_embed = self.head1(feat1)
-        x2_v2_embed = self.head2(feat2)
-
-
-
-        embed = torch.cat([x1_embed.unsqueeze(dim=1), x2_embed.unsqueeze(dim=1)], dim=1)
-        #v1_embed = torch.cat([x1_v1_embed.unsqueeze(dim=1), x2_v1_embed.unsqueeze(dim=1)], dim=1)
-        #v2_embed = torch.cat([x1_v2_embed.unsqueeze(dim=1), x2_v2_embed.unsqueeze(dim=1)], dim=1)
-        v1_embed = torch.cat([x1_v1_embed.unsqueeze(dim=1), x1_v2_embed.unsqueeze(dim=1)], dim=1)
-        v2_embed = torch.cat([x2_v1_embed.unsqueeze(dim=1), x2_v2_embed.unsqueeze(dim=1)], dim=1)
-
-        loss = self.critic_r(embed) + self.critic_u1(v1_embed) + self.critic_u2(v2_embed)
-
-        return loss
-
-    def get_embedding(self, x):
-        inputs, label = process_fn(x)
-        inputs, label = inputs.to(self.device), label.to(self.device)
-        outputs = model(**inputs)
-
-        feat1 = outputs.image_embeds
-        feat2 = outputs.text_embeds
-        return feat1, feat2     
-    
-
-####RUS Model
-
-def mlp_head(dim_in, feat_dim):
-    return nn.Sequential(
-                nn.Linear(dim_in, dim_in),
-                nn.ReLU(inplace=True),
-                nn.Linear(dim_in, feat_dim)
-            )
-
-# Inputs x are sequence data of shape [seq, dim] 
-
-def permute(x):
-  # shuffle the sequence order
-  idx = torch.randperm(x.shape[0])
-  return x[idx]
-
-def noise(x):
-  noise = torch.randn(x.shape) * 0.1
-  return x + noise.to(x.device)
-
-def drop(x):
-  # drop 20% of the sequences
-  drop_num = x.shape[0] // 5
-  
-  x_aug = torch.clone(x)
-  drop_idxs = np.random.choice(x.shape[0], drop_num, replace=False)
-  x_aug[drop_idxs] = 0.0
-  return x_aug  
-
-def identity(x):
-  return x
-
-
-# return 1 augmented instance 
-def augment_single(x_batch):
-  v1 = x_batch
-  v2 = torch.clone(v1)
-  transforms = [permute, noise, drop, identity]
-
-  for i in range(x_batch.shape[0]):
-    t_idxs = np.random.choice(4, 1, replace=False)
-    t = transforms[t_idxs[0]]
-    v2[i] = t(v2[i])
-  
-  return v2
-
-class RUSModel(nn.Module):
-    def __init__(self, model, processor, feat_dims, y_ohe_dim, device, temperature=1, activation='relu', lr=1e-4, ratio=1):
-        super(RUSModel, self).__init__()
+class FactorCLSUP(nn.Module):
+    def __init__(self, model, processor, feat_dims, y_ohe_dim, device='cuda', temperature=1, activation='relu', lr=1e-4, ratio=1):
+        super(FactorCLSUP, self).__init__()
         self.critic_hidden_dim = 512
-        #self.critic_embed_dim = 128
         self.critic_layers = 1
         self.critic_activation = 'relu'
         self.lr = lr
@@ -237,16 +93,14 @@ class RUSModel(nn.Module):
         self.y_ohe_dim = y_ohe_dim
         self.temperature = temperature
 
-        #self.club_prob_hidden_size = 15
-        
-        #encoder
+        # encoders
         self.feat_dims = feat_dims
         self.model = model
         self.processor = processor
         self.device = device
 
 
-        #linears
+        # linear projection heads
         self.linears_infonce_x1x2 = nn.ModuleList([mlp_head(self.feat_dims[i], self.feat_dims[i]) for i in range(2)])
         self.linears_club_x1x2_cond = nn.ModuleList([mlp_head(self.feat_dims[i], self.feat_dims[i]) for i in range(2)])
 
@@ -255,7 +109,7 @@ class RUSModel(nn.Module):
         self.linears_infonce_x1x2_cond = nn.ModuleList([mlp_head(self.feat_dims[i], self.feat_dims[i]) for i in range(2)])
         self.linears_club_x1x2 = nn.ModuleList([mlp_head(self.feat_dims[i], self.feat_dims[i]) for i in range(2)])
 
-        #critics
+        # critics
         self.infonce_x1x2 = InfoNCECritic(self.feat_dims[0], self.feat_dims[1], self.critic_hidden_dim, self.critic_layers, activation, temperature=temperature)
         self.club_x1x2_cond = CLUBInfoNCECritic(self.feat_dims[0] + self.y_ohe_dim, self.feat_dims[1] + self.y_ohe_dim, 
                                                 self.critic_hidden_dim, self.critic_layers, activation, temperature=temperature) 
@@ -276,8 +130,6 @@ class RUSModel(nn.Module):
         ] 
 
     def ohe(self, y):
-        # y must have shape (N,1)
-
         N = y.shape[0]
         if y.dim() < 2:
             y = y.unsqueeze(1)
@@ -285,20 +137,24 @@ class RUSModel(nn.Module):
         y_ohe[torch.arange(N).long(), y.T[0].long()] = 1
 
         return y_ohe.to(self.device)
+    
+    def process_fn(self, batch):
+        images, texts, labels = batch
+        batch = self.processor(images=images, text=texts, padding=True, return_tensors='pt')
+
+        return batch, labels
                          
     def forward(self, x): 
-        # x is (images, texts, labels)
-        # Get embeddings
-        inputs, label = process_fn(x)
+
+        inputs, label = self.process_fn(x)
         inputs, label = inputs.to(self.device), label.to(self.device)    
-        outputs = model(**inputs)
+        outputs = self.model(**inputs)
         x1_embed = outputs.image_embeds
         x2_embed = outputs.text_embeds
 
         label = label.unsqueeze(1)
         y_ohe = self.ohe(label)
 
-        #compute losses
         uncond_losses = [self.infonce_x1x2(self.linears_infonce_x1x2[0](x1_embed), self.linears_infonce_x1x2[1](x2_embed)),
                          self.club_x1x2(self.linears_club_x1x2[0](x1_embed), self.linears_club_x1x2[1](x2_embed)),
                          self.infonce_x1y(self.linears_infonce_x1y(x1_embed), label),
@@ -315,16 +171,15 @@ class RUSModel(nn.Module):
         return sum(uncond_losses) + sum(cond_losses)
 
     def learning_loss(self, x):
-        inputs, label = process_fn(x)
+        inputs, label = self.process_fn(x)
         inputs, label = inputs.to(self.device), label.to(self.device)    
-        outputs = model(**inputs)
+        outputs = self.model(**inputs)
         x1_embed = outputs.image_embeds
         x2_embed = outputs.text_embeds
 
         label = label.unsqueeze(1)
         y_ohe = self.ohe(label)
 
-        # Calculate InfoNCE loss for CLUB
         learning_losses = [self.club_x1x2.learning_loss(self.linears_club_x1x2[0](x1_embed), self.linears_club_x1x2[1](x2_embed)),
                            self.club_x1x2_cond.learning_loss(torch.cat([self.linears_club_x1x2_cond[0](x1_embed), y_ohe], dim=1), 
                                                              torch.cat([self.linears_club_x1x2_cond[1](x2_embed), y_ohe], dim=1))
@@ -332,9 +187,9 @@ class RUSModel(nn.Module):
         return sum(learning_losses)
  
     def get_embedding(self, x):
-        inputs, label = process_fn(x)
+        inputs, label = self.process_fn(x)
         inputs, label = inputs.to(self.device), label.to(self.device)    
-        outputs = model(**inputs)
+        outputs = self.model(**inputs)
         x1_embed = outputs.image_embeds
         x2_embed = outputs.text_embeds
 
@@ -363,67 +218,26 @@ class RUSModel(nn.Module):
 
         return non_CLUB_optims, CLUB_optims
 
-#####RUS Training
-def train_rusmodel(model, train_loader, num_epoch=50, num_club_iter=1, batch_size=128):
-    non_CLUB_optims, CLUB_optims = model.get_optims()
-    losses = []
 
-    for _iter in range(num_epoch):
-        for i_batch, data_batch in enumerate(train_loader):
-                      
-             
-            #loss, losses, ts = model(x_batch, y_batch)   
-            loss = model(data_batch)
-            losses.append(loss.detach().cpu().numpy())
-                
-            for optimizer in non_CLUB_optims:
-                optimizer.zero_grad()
 
-            loss.backward()
-
-            for optimizer in non_CLUB_optims:
-                optimizer.step()
-
-            for _ in range(num_club_iter): # increase number of iteration
-
-                learning_loss = model.learning_loss(data_batch)  
-                    
-                for optimizer in CLUB_optims:
-                    optimizer.zero_grad()
-
-                learning_loss.backward()
-
-                for optimizer in CLUB_optims:
-                    optimizer.step()
-            
-            if i_batch%100 == 0:
-                print('iter: ', _iter, ' i_batch: ', i_batch, ' loss: ', loss.item())
-                #print([l.item() for l in losses])
-                #print([t.item() for t in ts])
-    return losses
-
-class RUSAugment(nn.Module):
-    def __init__(self, model, processor, feat_dims, y_ohe_dim, device, temperature=1, activation='relu', lr=1e-4, ratio=1):
-        super(RUSAugment, self).__init__()
+class FactorCLSSL(nn.Module):
+    def __init__(self, model, processor, feat_dims, y_ohe_dim, device='cuda', temperature=1, activation='relu', lr=1e-4, ratio=1):
+        super(FactorCLSSL, self).__init__()
         self.critic_hidden_dim = 512
-        #self.critic_embed_dim = 128
         self.critic_layers = 1
         self.critic_activation = 'relu'
         self.lr = lr
         self.ratio = ratio
         self.y_ohe_dim = y_ohe_dim
         self.temperature = temperature
-
-        #self.club_prob_hidden_size = 15
         
-        #encoder
-        #self.dim_in = 2048
+        # encoders
         self.feat_dims = feat_dims
         self.model = model
         self.processor = processor
         self.device = device
 
-        #linears
+        # linear projection heads
         self.linears_infonce_x1x2 = nn.ModuleList([mlp_head(self.feat_dims[i], self.feat_dims[i]) for i in range(2)])
         self.linears_club_x1x2_cond = nn.ModuleList([mlp_head(self.feat_dims[i], self.feat_dims[i]) for i in range(2)])
 
@@ -432,7 +246,7 @@ class RUSAugment(nn.Module):
         self.linears_infonce_x1x2_cond = nn.ModuleList([mlp_head(self.feat_dims[i], self.feat_dims[i]) for i in range(2)])
         self.linears_club_x1x2 = nn.ModuleList([mlp_head(self.feat_dims[i], self.feat_dims[i]) for i in range(2)])
 
-        #critics
+        # critics
         self.infonce_x1x2 = InfoNCECritic(self.feat_dims[0], self.feat_dims[1], self.critic_hidden_dim, self.critic_layers, activation, temperature=temperature)
         self.club_x1x2_cond = CLUBInfoNCECritic(self.feat_dims[0]*2, self.feat_dims[1]*2, 
                                                 self.critic_hidden_dim, self.critic_layers, activation, temperature=temperature) 
@@ -457,29 +271,33 @@ class RUSAugment(nn.Module):
         y_ohe = torch.zeros((N, self.y_ohe_dim))
         y_ohe[torch.arange(N).long(), y.T[0].long()] = 1
         return y_ohe    
+    
+    def process_fn(self, batch):
+        images, texts, labels = batch
+        batch = self.processor(images=images, text=texts, padding=True, return_tensors='pt')
+
+        return batch, labels
+
                          
     def forward(self, x1, x1_aug, x2, x2_aug, label):     
         x = (x1, x2, label)
         x_aug = (x1_aug, x2_aug, label)    
-  
-        # Get embeddings
-        inputs, label = process_fn(x)
+
+        inputs, label = self.process_fn(x)
         inputs, label = inputs.to(self.device), label.to(self.device)    
-        outputs = model(**inputs)
+        outputs = self.model(**inputs)
         x1_embed = outputs.image_embeds
         x2_embed = outputs.text_embeds
 
-        inputs_aug, _ = process_fn(x_aug)
+        inputs_aug, _ = self.process_fn(x_aug)
         inputs_aug = inputs_aug.to(self.device)
-        outputs_aug = model(**inputs_aug)
+        outputs_aug = self.model(**inputs_aug)
         x1_aug_embed = outputs_aug.image_embeds
         x2_aug_embed = outputs_aug.text_embeds
 
 
         label = label.unsqueeze(1)
-        y_ohe = self.ohe(label)
 
-        #compute losses
         uncond_losses = [self.infonce_x1x2(self.linears_infonce_x1x2[0](x1_embed), self.linears_infonce_x1x2[1](x2_embed)),
                          self.club_x1x2(self.linears_club_x1x2[0](x1_embed), self.linears_club_x1x2[1](x2_embed)),
                          self.infonce_x1y(self.linears_infonce_x1y(x1_embed), self.linears_infonce_x1y(x1_aug_embed)),
@@ -500,27 +318,25 @@ class RUSAugment(nn.Module):
         return sum(uncond_losses) + sum(cond_losses)
 
     def learning_loss(self, x1, x1_aug, x2, x2_aug, label):
-        # Get embeddings
+    
         x = (x1, x2, label)
         x_aug = (x1_aug, x2_aug, label)    
-        # Get embeddings
-        inputs, label = process_fn(x)
+
+        inputs, label = self.process_fn(x)
         inputs, label = inputs.to(self.device), label.to(self.device)    
-        outputs = model(**inputs)
+        outputs = self.model(**inputs)
         x1_embed = outputs.image_embeds
         x2_embed = outputs.text_embeds
 
-        inputs_aug, _ = process_fn(x_aug)
+        inputs_aug, _ = self.process_fn(x_aug)
         inputs_aug = inputs_aug.to(self.device)
-        outputs_aug = model(**inputs_aug)
+        outputs_aug = self.model(**inputs_aug)
         x1_aug_embed = outputs_aug.image_embeds
         x2_aug_embed = outputs_aug.text_embeds
 
 
         label = label.unsqueeze(1)
-        y_ohe = self.ohe(label)
 
-        # Calculate InfoNCE loss for CLUB
         learning_losses = [self.club_x1x2.learning_loss(self.linears_club_x1x2[0](x1_embed), self.linears_club_x1x2[1](x2_embed)),
                            self.club_x1x2_cond.learning_loss(torch.cat([self.linears_club_x1x2_cond[0](x1_embed), 
                                                                         self.linears_club_x1x2_cond[0](x1_aug_embed)], dim=1), 
@@ -530,9 +346,9 @@ class RUSAugment(nn.Module):
         return sum(learning_losses)
  
     def get_embedding(self, x):
-        inputs, label = process_fn(x)
+        inputs, label = self.process_fn(x)
         inputs, label = inputs.to(self.device), label.to(self.device)    
-        outputs = model(**inputs)
+        outputs = self.model(**inputs)
         x1_embed = outputs.image_embeds
         x2_embed = outputs.text_embeds
 
@@ -562,8 +378,45 @@ class RUSAugment(nn.Module):
         return non_CLUB_optims, CLUB_optims
     
 
-#####Aug Training
-from torchvision import transforms
+
+
+############################
+#   Augmentations   #
+############################
+
+def permute(x):
+  # shuffle the sequence order
+  idx = torch.randperm(x.shape[0])
+  return x[idx]
+
+def noise(x):
+  noise = torch.randn(x.shape) * 0.1
+  return x + noise.to(x.device)
+
+def drop(x):
+  # drop 20% of the sequences
+  drop_num = x.shape[0] // 5
+
+  x_aug = torch.clone(x)
+  drop_idxs = np.random.choice(x.shape[0], drop_num, replace=False)
+  x_aug[drop_idxs] = 0.0
+  return x_aug  
+
+def identity(x):
+  return x
+
+# return 1 augmented instance 
+def augment_single(x_batch):
+  v1 = x_batch
+  v2 = torch.clone(v1)
+  transforms = [permute, noise, drop, identity]
+
+  for i in range(x_batch.shape[0]):
+    t_idxs = np.random.choice(4, 1, replace=False)
+    t = transforms[t_idxs[0]]
+    v2[i] = t(v2[i])
+  
+  return v2
 
 def augment_image(image_batch):
     aug_batch = []
@@ -610,15 +463,70 @@ def augment_text(text_batch):
 
 
 
-def train_rusaug(model, train_loader, num_epoch=50, num_club_iter=1, batch_size=128):
+
+########################
+#   Training Scripts   #
+########################
+
+def train_supcon(model, train_loader, optimizer, num_epoch=100):
+    for _iter in range(num_epoch):
+        for i_batch, data_batch in enumerate(train_loader):
+               
+            loss = model(data_batch)
+                
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            if i_batch%100 == 0:
+                print('iter: ', _iter, ' i_batch: ', i_batch, ' loss: ', loss.item())
+    return
+
+
+
+def train_sup_model(model, train_loader, num_epoch=50, num_club_iter=1):
     non_CLUB_optims, CLUB_optims = model.get_optims()
     losses = []
 
     for _iter in range(num_epoch):
         for i_batch, data_batch in enumerate(train_loader):
-                      
-             
-            #loss, losses, ts = model(x_batch, y_batch)   
+                        
+            loss = model(data_batch)
+            losses.append(loss.detach().cpu().numpy())
+                
+            for optimizer in non_CLUB_optims:
+                optimizer.zero_grad()
+
+            loss.backward()
+
+            for optimizer in non_CLUB_optims:
+                optimizer.step()
+
+            for _ in range(num_club_iter): 
+
+                learning_loss = model.learning_loss(data_batch)  
+                    
+                for optimizer in CLUB_optims:
+                    optimizer.zero_grad()
+
+                learning_loss.backward()
+
+                for optimizer in CLUB_optims:
+                    optimizer.step()
+            
+            if i_batch%100 == 0:
+                print('iter: ', _iter, ' i_batch: ', i_batch, ' loss: ', loss.item())
+
+    return losses
+
+
+def train_ssl_model(model, train_loader, num_epoch=50, num_club_iter=1, batch_size=128):
+    non_CLUB_optims, CLUB_optims = model.get_optims()
+    losses = []
+
+    for _iter in range(num_epoch):
+        for i_batch, data_batch in enumerate(train_loader):
+                       
             image_batch, text_batch, label_batch = data_batch
             image_aug = augment_image(image_batch)
             text_aug = augment_text(text_batch)
@@ -634,7 +542,7 @@ def train_rusaug(model, train_loader, num_epoch=50, num_club_iter=1, batch_size=
             for optimizer in non_CLUB_optims:
                 optimizer.step()
 
-            for _ in range(num_club_iter): # increase number of iteration
+            for _ in range(num_club_iter): 
 
                 learning_loss = model.learning_loss(image_batch, image_aug, text_batch, text_aug, label_batch)  
                     
@@ -648,19 +556,17 @@ def train_rusaug(model, train_loader, num_epoch=50, num_club_iter=1, batch_size=
             
             if i_batch%100 == 0:
                 print('iter: ', _iter, ' i_batch: ', i_batch, ' loss: ', loss.item())
-                #print([l.item() for l in losses])
-                #print([t.item() for t in ts])
+
     return losses
 
-def train_rusaug_unique(model, train_loader, num_epoch=50, num_club_iter=1, batch_size=128):
+
+def train_ssl_unique(model, train_loader, num_epoch=50, num_club_iter=1, batch_size=128):
     non_CLUB_optims, CLUB_optims = model.get_optims()
     losses = []
 
     for _iter in range(num_epoch):
         for i_batch, data_batch in enumerate(train_loader):
                       
-             
-            #loss, losses, ts = model(x_batch, y_batch)   
             image_batch, text_batch, label_batch = data_batch
             image_aug = augment_image_unique(image_batch)
             text_aug = augment_text(text_batch)
@@ -676,7 +582,7 @@ def train_rusaug_unique(model, train_loader, num_epoch=50, num_club_iter=1, batc
             for optimizer in non_CLUB_optims:
                 optimizer.step()
 
-            for _ in range(num_club_iter): # increase number of iteration
+            for _ in range(num_club_iter): 
 
                 learning_loss = model.learning_loss(image_batch, image_aug, text_batch, text_aug, label_batch)  
                     
