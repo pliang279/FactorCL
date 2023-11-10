@@ -1,10 +1,13 @@
+
 import torch
 import numpy as np
 import math
 from torch.utils.data import Dataset
 
+#############################
+#  Synthetic Dataset Class  #
+#############################
 
-# Synthetic Dataset
 class MultimodalDataset(Dataset):
   def __init__(self, total_data, total_labels):
     self.data = torch.from_numpy(total_data).float()
@@ -57,7 +60,8 @@ def generate_data(num_data, num_modalities, feature_dim_info, label_dim_info, tr
       transforms = []
       for i in range(num_modalities):
         transforms.append(np.random.uniform(0.0,1.0,(modality_dims[i], default_transform_dim)))
-        
+
+
   # generate data
   for data_idx in range(num_data):
 
@@ -76,8 +80,10 @@ def generate_data(num_data, num_modalities, feature_dim_info, label_dim_info, tr
 
     raw_data = [np.concatenate(modality_concept_means[i]) for i in range(num_modalities)]
     
+
     # Transform into high-dimensional space
     modality_data = [raw_data[i] @ transforms[i] for i in range(num_modalities)]
+
 
     # update total data
     for i in range(num_modalities):
@@ -159,7 +165,10 @@ def get_planar_flow_labels(label_dim_info, total_raw_features):
     return total_labels.numpy()
 
 
-# Simple Augmentations
+##########################
+#  Simple Augmentations  #
+##########################
+
 def swap(x):
   mid = x.shape[0] // 2
   return torch.cat([x[mid:], x[:mid]])
@@ -193,7 +202,7 @@ def augment(x_batch):
   
   return v1, v2
 
-# return 1 augmented instance instead of pair
+# return one augmented instance instead of pair
 def augment_single(x_batch):
   v1 = x_batch
   v2 = torch.clone(v1)
