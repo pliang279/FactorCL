@@ -1,7 +1,13 @@
 from critic_objectives import*
 from Synthetic.dataset import augment, augment_single
 
-#Supcon and SimCLR model
+import torch.optim as optim
+
+
+##############
+#   Models   #
+##############
+
 class SupConModel(nn.Module):
     def __init__(self, x1_dim, x2_dim, hidden_dim, embed_dim, layers=2, activation='relu', lr=1e-4, ratio=1, use_label=True):
         super(SupConModel, self).__init__()
@@ -13,7 +19,7 @@ class SupConModel(nn.Module):
         self.encoder_x1 = mlp(x1_dim, hidden_dim, embed_dim, layers, activation)
         self.encoder_x2 = mlp(x2_dim, hidden_dim, embed_dim, layers, activation)
 
-        #linears
+        #linear projection heads
         self.projection_x1 = mlp(embed_dim, embed_dim, embed_dim, 1, activation)
         self.projection_x2 = mlp(embed_dim, embed_dim, embed_dim, 1, activation)
 
@@ -49,46 +55,22 @@ class SupConModel(nn.Module):
 
 
 
-def train_supcon(model, train_loader, optimizer, num_epoch=50, batch_size=128):
-    for _iter in range(num_epoch):
-        for i_batch, data_batch in enumerate(train_loader):
-                      
-            x1_batch = data_batch[0].float().cuda()
-            x2_batch = data_batch[1].float().cuda()
-            y_batch = data_batch[2].float().cuda()
-               
-            loss = model(x1_batch, x2_batch, y_batch)
-                
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
 
-            if i_batch%100 == 0:
-                print('iter: ', _iter, ' i_batch: ', i_batch, ' loss: ', loss.item())
-    return
-
-
-
-####RUS Model
-#One shared critic for conditional MI
-class RUSModel(nn.Module):
+class FactorCLSUP(nn.Module):
     def __init__(self, x1_dim, x2_dim, y_ohe_dim, hidden_dim, embed_dim, layers=2, activation='relu', lr=1e-4, ratio=1):
-        super(RUSModel, self).__init__()
+        super(FactorCLSUP, self).__init__()
         self.critic_hidden_dim = 512
-        #self.critic_embed_dim = 128
         self.critic_layers = 1
         self.critic_activation = 'relu'
         self.lr = lr
         self.ratio = ratio
         self.y_ohe_dim = y_ohe_dim
-
-        #self.club_prob_hidden_size = 15
         
-        #encoder
+        # encoders
         self.backbones = nn.ModuleList([mlp(x1_dim, hidden_dim, embed_dim, layers, activation),
                                         mlp(x2_dim, hidden_dim, embed_dim, layers, activation)])
         
-        #projections
+        # linear projection heads
         self.linears_infonce_x1x2 = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)])
         self.linears_club_x1x2_cond = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)]) # conditional
 
@@ -97,7 +79,7 @@ class RUSModel(nn.Module):
         self.linears_infonce_x1x2_cond = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)]) #conditional
         self.linears_club_x1x2 = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)])
 
-        #critics
+        # critics
         self.infonce_x1x2 = InfoNCECritic(embed_dim, embed_dim, self.critic_hidden_dim, self.critic_layers, activation)
         self.club_x1x2_cond = CLUBInfoNCECritic(embed_dim + y_ohe_dim, embed_dim, self.critic_hidden_dim, self.critic_layers, activation) #conditional
 
@@ -145,13 +127,12 @@ class RUSModel(nn.Module):
         return sum(uncond_losses) + sum(cond_losses)
 
     def learning_loss(self, x1, x2, y):
-        # Get embeddings
+
         x1_embed = self.backbones[0](x1)
         x2_embed = self.backbones[1](x2)
 
         y_ohe = self.ohe(y).cuda()
 
-        # Calculate InfoNCE loss for CLUB
         learning_losses = [self.club_x1x2.learning_loss(self.linears_club_x1x2[0](x1_embed), self.linears_club_x1x2[1](x2_embed)),
                            self.club_x1x2_cond.learning_loss(torch.cat([self.linears_club_x1x2_cond[0](x1_embed), y_ohe], dim=1), 
                                                              self.linears_club_x1x2_cond[1](x2_embed))
@@ -195,25 +176,22 @@ class RUSModel(nn.Module):
         return non_CLUB_optims, CLUB_optims
 
 
-####RUS Augmentation
 
-class RUSModelAugment(nn.Module):
+class FactorCLSSL(nn.Module):
     def __init__(self, x1_dim, x2_dim, hidden_dim, embed_dim, layers=2, activation='relu', lr=1e-4, ratio=1):
-        super(RUSModelAugment, self).__init__()
+        super(FactorCLSSL, self).__init__()
         self.critic_hidden_dim = 512
-        #self.critic_embed_dim = 128
         self.critic_layers = 1
         self.critic_activation = 'relu'
         self.lr = lr
         self.ratio = ratio
 
-        #self.club_prob_hidden_size = 15
         
-        #encoder
+        # encoders
         self.backbones = nn.ModuleList([mlp(x1_dim, hidden_dim, embed_dim, layers, activation),
                                         mlp(x2_dim, hidden_dim, embed_dim, layers, activation)])
 
-        #projections
+        # linear projection heads
         self.linears_infonce_x1x2 = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)])
         self.linears_club_x1x2_cond = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)]) # conditional
 
@@ -222,7 +200,7 @@ class RUSModelAugment(nn.Module):
         self.linears_infonce_x1x2_cond = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)]) #conditional
         self.linears_club_x1x2 = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)])
 
-        #critics
+        # critics
         self.infonce_x1x2 = InfoNCECritic(embed_dim, embed_dim, self.critic_hidden_dim, self.critic_layers, activation)
         self.club_x1x2_cond = CLUBInfoNCECritic(embed_dim + embed_dim, embed_dim + embed_dim, self.critic_hidden_dim, self.critic_layers, activation) #conditional
 
@@ -244,7 +222,7 @@ class RUSModelAugment(nn.Module):
     def forward(self, x1, x2, y=None): 
         x1_aug = augment_single(x1)
         x2_aug = augment_single(x2)
-        # Get embeddings
+
         x1_embed = self.backbones[0](x1)
         x2_embed = self.backbones[1](x2)
 
@@ -252,7 +230,6 @@ class RUSModelAugment(nn.Module):
         x2_aug_embed = self.backbones[1](x2_aug)
 
 
-        #compute losses
         uncond_losses = [self.infonce_x1x2(self.linears_infonce_x1x2[0](x1_embed), self.linears_infonce_x1x2[1](x2_embed)),
                          self.club_x1x2(self.linears_club_x1x2[0](x1_embed), self.linears_club_x1x2[1](x2_embed)),
                          self.infonce_x1y(self.linears_infonce_x1y(x1_embed), self.linears_infonce_x1y(x1_aug_embed)),
@@ -273,11 +250,10 @@ class RUSModelAugment(nn.Module):
         return sum(uncond_losses) + sum(cond_losses)
 
     def learning_loss(self, x1, x2, y=None):
-        # Get embeddings
+
         x1_embed = self.backbones[0](x1)
         x2_embed = self.backbones[1](x2)
 
-        # Calculate InfoNCE loss for CLUB
         learning_losses = [self.club_x1x2.learning_loss(self.linears_club_x1x2[0](x1_embed), self.linears_club_x1x2[1](x2_embed)),
                            self.club_x1x2_cond.learning_loss(torch.cat([self.linears_club_x1x2_cond[0](x1_embed), 
                                                                         self.linears_club_x1x2_cond[0](x1_embed)], dim=1), 
@@ -323,9 +299,31 @@ class RUSModelAugment(nn.Module):
         return non_CLUB_optims, CLUB_optims
 
 
-#####Training
+########################
+#   Training Scripts   #
+########################
 
-def train_rusmodel(model, train_loader, dataset, num_epoch=50, num_club_iter=5, batch_size=128):
+def train_supcon(model, train_loader, optimizer, num_epoch=50):
+    for _iter in range(num_epoch):
+        for i_batch, data_batch in enumerate(train_loader):
+                      
+            x1_batch = data_batch[0].float().cuda()
+            x2_batch = data_batch[1].float().cuda()
+            y_batch = data_batch[2].float().cuda()
+               
+            loss = model(x1_batch, x2_batch, y_batch)
+                
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            if i_batch%100 == 0:
+                print('iter: ', _iter, ' i_batch: ', i_batch, ' loss: ', loss.item())
+    return
+
+
+
+def train_sup_model(model, train_loader, dataset, num_epoch=50, num_club_iter=5, batch_size=128):
     non_CLUB_optims, CLUB_optims = model.get_optims()
     losses = []
 
@@ -336,7 +334,6 @@ def train_rusmodel(model, train_loader, dataset, num_epoch=50, num_club_iter=5, 
             x2_batch = data_batch[1].float().cuda()
             y_batch = data_batch[2].float().cuda()
              
-            #loss, losses, ts = model(x_batch, y_batch)   
             loss = model(x1_batch, x2_batch, y_batch)
             losses.append(loss.detach().cpu().numpy())
                 
@@ -348,7 +345,7 @@ def train_rusmodel(model, train_loader, dataset, num_epoch=50, num_club_iter=5, 
             for optimizer in non_CLUB_optims:
                 optimizer.step()
 
-            for _ in range(num_club_iter): # increase number of iteration
+            for _ in range(num_club_iter): 
                 data_batch = dataset.sample_batch(batch_size)
                 
                 x1_batch = data_batch[0].float().cuda()
@@ -367,7 +364,6 @@ def train_rusmodel(model, train_loader, dataset, num_epoch=50, num_club_iter=5, 
             
             if i_batch%100 == 0:
                 print('iter: ', _iter, ' i_batch: ', i_batch, ' loss: ', loss.item())
-                #print([l.item() for l in losses])
-                #print([t.item() for t in ts])
+
     return losses
 
