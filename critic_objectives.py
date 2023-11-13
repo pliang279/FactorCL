@@ -7,6 +7,9 @@ import numpy as np
 #   Critic Model   #
 ####################
 
+
+# Part of the code is adapted from here: https://github.com/yaohungt/Pointwise_Dependency_Neural_Estimation
+
 def probabilistic_classifier_obj(f):
     criterion = nn.BCEWithLogitsLoss()
 
