@@ -7,6 +7,41 @@ import numpy as np
 #   Critic Model   #
 ####################
 
+def probabilistic_classifier_obj(f):
+    criterion = nn.BCEWithLogitsLoss()
+
+    batch_size = f.shape[0]
+    labels = [0.]*(batch_size*batch_size)
+    labels[::(batch_size+1)] = [1.]*batch_size
+    labels = torch.tensor(labels).type_as(f)
+    labels = labels.view(-1,1)
+
+    logits = f.contiguous().view(-1,1)
+
+    Loss = -1.*criterion(logits, labels)
+
+    return Loss
+
+def probabilistic_classifier_eval(f):
+    batch_size = f.shape[0]
+    joint_feat = f.contiguous().view(-1)[::(batch_size+1)]
+    joint_logits = torch.clamp(torch.sigmoid(joint_feat), min=1e-6, max=1-1e-6)
+
+    MI = torch.mean(torch.log((batch_size-1)*joint_logits/(1.-joint_logits)))
+    # we have batch_size*(batch_size-1) product of marginal samples
+    # we have batch_size joint density samples
+
+    return MI
+
+def infonce_lower_bound_obj(scores):
+    nll = scores.diag().mean() - scores.logsumexp(dim=1)
+    # Alternative implementation:
+    # nll = -tf.nn.sparse_softmax_cross_entropy_with_logits(logits=scores, labels=tf.range(batch_size))
+    mi = torch.tensor(scores.size(0)).float().log() + nll
+    mi = mi.mean()
+    return mi
+    
+
 def mlp(dim, hidden_dim, output_dim, layers, activation):
     activation = {
         'relu': nn.ReLU,
@@ -19,7 +54,7 @@ def mlp(dim, hidden_dim, output_dim, layers, activation):
     seq += [nn.Linear(hidden_dim, output_dim)]
 
     return nn.Sequential(*seq)
-
+    
 
 class SeparableCritic(nn.Module):
     def __init__(self, x1_dim, x2_dim, hidden_dim, embed_dim, 
