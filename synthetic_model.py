@@ -193,20 +193,20 @@ class FactorCLSSL(nn.Module):
 
         # linear projection heads
         self.linears_infonce_x1x2 = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)])
-        self.linears_club_x1x2_cond = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)]) # conditional
+        self.linears_club_x1x2_cond = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)]) 
 
         self.linears_infonce_x1y = mlp(embed_dim, embed_dim, embed_dim, 1, activation)
         self.linears_infonce_x2y = mlp(embed_dim, embed_dim, embed_dim, 1, activation) 
-        self.linears_infonce_x1x2_cond = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)]) #conditional
+        self.linears_infonce_x1x2_cond = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)]) 
         self.linears_club_x1x2 = nn.ModuleList([mlp(embed_dim, embed_dim, embed_dim, 1, activation) for i in range(2)])
 
         # critics
         self.infonce_x1x2 = InfoNCECritic(embed_dim, embed_dim, self.critic_hidden_dim, self.critic_layers, activation)
-        self.club_x1x2_cond = CLUBInfoNCECritic(embed_dim + embed_dim, embed_dim + embed_dim, self.critic_hidden_dim, self.critic_layers, activation) #conditional
+        self.club_x1x2_cond = CLUBInfoNCECritic(embed_dim + embed_dim, embed_dim + embed_dim, self.critic_hidden_dim, self.critic_layers, activation) 
 
         self.infonce_x1y = InfoNCECritic(embed_dim, embed_dim, self.critic_hidden_dim, self.critic_layers, activation) 
         self.infonce_x2y = InfoNCECritic(embed_dim, embed_dim, self.critic_hidden_dim, self.critic_layers, activation) 
-        self.infonce_x1x2_cond = InfoNCECritic(embed_dim + embed_dim, embed_dim + embed_dim, self.critic_hidden_dim, self.critic_layers, activation) #conditional
+        self.infonce_x1x2_cond = InfoNCECritic(embed_dim + embed_dim, embed_dim + embed_dim, self.critic_hidden_dim, self.critic_layers, activation) 
         self.club_x1x2 = CLUBInfoNCECritic(embed_dim, embed_dim, self.critic_hidden_dim, self.critic_layers, activation)
 
         self.linears_list = [self.linears_infonce_x1x2, self.linears_club_x1x2_cond,
